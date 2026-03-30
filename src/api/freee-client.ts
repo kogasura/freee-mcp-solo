@@ -80,7 +80,7 @@ export class FreeeClient {
     const token = await this.tokenManager.getValidToken();
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);
-    headers.set("User-Agent", "freee-accounting-mcp/0.1.0");
+    headers.set("User-Agent", "freee-mcp-solo/0.1.0");
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);

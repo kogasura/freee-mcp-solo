@@ -1,5 +1,5 @@
-# freee-accounting-mcp 設定ファイル
-# ~/.config/freee-accounting-mcp/config.yaml にコピーして編集してください
+# freee-mcp-solo 設定ファイル
+# ~/.config/freee-mcp-solo/config.yaml にコピーして編集してください
 
 # 振込先情報（請求書に記載される）
 payment:

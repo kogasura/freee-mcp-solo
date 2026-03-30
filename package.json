@@ -1,11 +1,11 @@
 {
-  "name": "freee-accounting-mcp",
+  "name": "freee-mcp-solo",
   "version": "0.1.0",
-  "description": "A use-case driven MCP server for freee accounting, designed for sole proprietors in Japan.",
+  "description": "A use-case driven MCP server for freee accounting, designed for sole proprietors and freelancers in Japan.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "freee-accounting-mcp": "dist/index.js"
+    "freee-mcp-solo": "dist/index.js"
   },
   "files": [
     "dist",
@@ -24,6 +24,8 @@
     "freee",
     "accounting",
     "invoice",
+    "sole-proprietor",
+    "freelancer",
     "model-context-protocol",
     "claude",
     "ai"
@@ -32,7 +34,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kogasura/freee-accounting-mcp.git"
+    "url": "https://github.com/kogasura/freee-mcp-solo.git"
+  },
+  "homepage": "https://github.com/kogasura/freee-mcp-solo#readme",
+  "bugs": {
+    "url": "https://github.com/kogasura/freee-mcp-solo/issues"
   },
   "engines": {
     "node": ">=20.0.0"

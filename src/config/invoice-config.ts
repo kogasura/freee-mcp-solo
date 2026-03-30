@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { parse, stringify } from "yaml";
 
-const CONFIG_DIR = join(homedir(), ".config", "freee-accounting-mcp");
+const CONFIG_DIR = join(homedir(), ".config", "freee-mcp-solo");
 const CONFIG_PATH = join(CONFIG_DIR, "config.yaml");
 
 export interface PartnerConfig {

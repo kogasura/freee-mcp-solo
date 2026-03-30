@@ -12,7 +12,7 @@ import { listInvoices } from "./tools/list-invoices.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
-    name: "freee-accounting",
+    name: "freee-mcp-solo",
     version: "0.1.0",
   });
 
