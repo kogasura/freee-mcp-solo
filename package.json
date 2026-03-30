@@ -1,6 +1,6 @@
 {
   "name": "freee-mcp-solo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A use-case driven MCP server for freee accounting, designed for sole proprietors and freelancers in Japan.",
   "type": "module",
   "main": "dist/index.js",
