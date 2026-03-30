@@ -1,5 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { randomBytes, createHash } from "node:crypto";
+import { parse, stringify } from "yaml";
 import type { FreeeConfig } from "../auth/config-reader.js";
 import { TokenManager } from "../auth/token-manager.js";
 
@@ -8,6 +12,7 @@ const AUTH_ENDPOINT =
 const TOKEN_ENDPOINT =
   "https://accounts.secure.freee.co.jp/public_api/token";
 const AUTH_TIMEOUT_MS = 5 * 60 * 1000; // 5分
+const CONFIG_PATH = join(homedir(), ".config", "freee-mcp-solo", "config.yaml");
 
 export async function authenticate(
   tokenManager: TokenManager
@@ -45,7 +50,6 @@ export async function authenticate(
   authUrl.searchParams.set("code_challenge_method", "S256");
 
   // コールバックサーバーをバックグラウンドで起動し、先にURLを返す
-  // コールバック到着後にトークン交換を行う
   startCallbackServer(config, state, codeVerifier, redirectUri, tokenManager);
 
   return `以下のURLをブラウザで開いてfreeeにログインしてください:\n${authUrl.toString()}\n\n認証完了後、自動的にトークンが保存されます（タイムアウト: 5分）。\n完了したら再度 authenticate を呼んで状態を確認してください。`;
@@ -59,6 +63,45 @@ function generatePKCE(): { codeVerifier: string; codeChallenge: string } {
     .update(codeVerifier)
     .digest("base64url");
   return { codeVerifier, codeChallenge };
+}
+
+/** 認証完了後に事業所情報を取得して config.yaml に保存する */
+async function saveCompanyInfo(accessToken: string): Promise<void> {
+  try {
+    const res = await fetch("https://api.freee.co.jp/api/1/users/me", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return;
+
+    const data = (await res.json()) as {
+      user: {
+        companies: Array<{
+          id: number;
+          display_name: string;
+          role: string;
+        }>;
+      };
+    };
+
+    const companies = data.user.companies;
+    if (companies.length === 0) return;
+
+    // 最初の事業所を使用
+    const company = companies[0];
+
+    // config.yaml を読み込んで auth.company_id と auth.company_name を更新
+    const raw = await readFile(CONFIG_PATH, "utf-8");
+    const yaml = parse(raw) as Record<string, unknown>;
+
+    const auth = (yaml.auth ?? {}) as Record<string, unknown>;
+    auth.company_id = String(company.id);
+    auth.company_name = company.display_name;
+    yaml.auth = auth;
+
+    await writeFile(CONFIG_PATH, stringify(yaml, { lineWidth: 0 }), { mode: 0o600 });
+  } catch {
+    // 事業所情報の保存に失敗しても認証自体は完了しているので無視
+  }
 }
 
 function startCallbackServer(
@@ -124,6 +167,9 @@ function startCallbackServer(
           token_type: data.token_type,
           scope: data.scope,
         });
+
+        // 事業所情報を自動取得して config.yaml に保存
+        await saveCompanyInfo(data.access_token);
 
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(

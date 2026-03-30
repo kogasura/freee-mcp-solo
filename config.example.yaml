@@ -1,6 +1,18 @@
 # freee-mcp-solo 設定ファイル
 # ~/.config/freee-mcp-solo/config.yaml にコピーして編集してください
 
+# ── freee API 認証情報 ──
+# freee 開発者ページ (https://app.secure.freee.co.jp/developers) でアプリを作成し、
+# client_id と client_secret を取得してください。
+# コールバックURL: http://127.0.0.1:54321/callback
+auth:
+  client_id: ""       # freee アプリの Client ID
+  client_secret: ""   # freee アプリの Client Secret
+  callback_port: 54321
+  # company_id と company_name は初回認証時に自動設定されます
+  # company_id: ""
+  # company_name: ""
+
 # 振込先情報（請求書に記載される）
 payment:
   bank_info: "○○銀行 △△支店 普通 1234567 カ）サンプル"
