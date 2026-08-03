@@ -7,6 +7,7 @@ import { authenticate } from "./tools/authenticate.js";
 import { pendingTransactions } from "./tools/pending-transactions.js";
 import { createDeal } from "./tools/create-deal.js";
 import { monthlySummary } from "./tools/monthly-summary.js";
+import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
 import { listInvoices } from "./tools/list-invoices.js";
 
@@ -125,6 +126,36 @@ export function createMcpServer(): McpServer {
     },
     async (params) =>
       wrap(() => monthlySummary(client, cache, params))
+  );
+
+  // ── list_deals ──
+  server.tool(
+    "list_deals",
+    "登録済みの取引（仕訳）一覧を取得する。勘定科目名や期間で絞込可能。monthly_summaryの内訳確認や、仕訳の重複チェックに使う。",
+    {
+      start_date: z
+        .string()
+        .optional()
+        .describe("開始日 yyyy-mm-dd（デフォルト: 1ヶ月前）"),
+      end_date: z
+        .string()
+        .optional()
+        .describe("終了日 yyyy-mm-dd（デフォルト: 今日）"),
+      account_item: z
+        .string()
+        .optional()
+        .describe("勘定科目名で絞込（例: 支払手数料）"),
+      type: z
+        .enum(["income", "expense"])
+        .optional()
+        .describe("収入(income) or 支出(expense)。未指定は両方"),
+      limit: z
+        .coerce.number()
+        .optional()
+        .describe("取得件数（デフォルト: 100, 最大: 500）"),
+    },
+    async (params) =>
+      wrap(() => listDeals(client, cache, params))
   );
 
   // ── create_invoice ──
