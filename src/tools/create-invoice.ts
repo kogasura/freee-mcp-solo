@@ -5,6 +5,7 @@ import {
   getPartnerConfig,
   calculateDueDate,
   expandSubjectTemplate,
+  applyHonorific,
 } from "../config/invoice-config.js";
 import { formatYen } from "../utils/date-helpers.js";
 
@@ -50,6 +51,8 @@ export async function createInvoice(
   const partnerResult = await cache.resolvePartner(params.partner_name);
   let partnerId: number;
   let partnerDisplayName: string;
+  let partnerDefaultTitle: string | undefined;
+  let partnerContactName: string | undefined;
 
   if (partnerResult === null) {
     return `エラー: 取引先「${params.partner_name}」が見つかりません。freeeに取引先を登録してください。`;
@@ -58,11 +61,22 @@ export async function createInvoice(
   } else {
     partnerId = partnerResult.partner.id;
     partnerDisplayName = partnerResult.partner.name;
+    partnerDefaultTitle = partnerResult.partner.default_title;
+    partnerContactName = partnerResult.partner.contact_name;
   }
 
-  // 取引先設定の取得
+  // 取引先設定の取得。宛名の敬称は 設定ファイル > 取引先マスタ > 既定値 の順で採用する
   const partnerConfig = getPartnerConfig(config, partnerDisplayName);
-  const partnerTitle = partnerConfig?.partner_title ?? "御中";
+  const partnerTitle =
+    partnerConfig?.partner_title ||
+    partnerDefaultTitle ||
+    config.invoice.default_partner_title;
+
+  // 取引先の担当者名に敬称を付ける（マスタ側が敬称なしでも請求書には付く）
+  const contactName = applyHonorific(
+    partnerContactName ?? "",
+    config.invoice.contact_honorific
+  );
 
   // 入金期日の計算
   let dueDate = params.due_date;
@@ -101,6 +115,10 @@ export async function createInvoice(
     partner_display_name: partnerDisplayName,
     partner_title: partnerTitle,
     billing_date: params.issue_date,
+    ...(contactName ? { partner_contact_name: contactName } : {}),
+    ...(config.invoice.company_contact_name
+      ? { company_contact_name: config.invoice.company_contact_name }
+      : {}),
     payment_date: dueDate,
     subject: subject ?? "",
     payment_type: "transfer",
@@ -119,6 +137,9 @@ export async function createInvoice(
   lines2.push(`請求書を作成しました (ID: ${inv.id})`);
   lines2.push(`  請求番号: ${inv.invoice_number}`);
   lines2.push(`  請求先: ${inv.partner_display_name} ${partnerTitle}`);
+  if (contactName) lines2.push(`  担当者: ${contactName}`);
+  if (config.invoice.company_contact_name)
+    lines2.push(`  自社担当者: ${config.invoice.company_contact_name}`);
   lines2.push(`  請求日: ${inv.billing_date}`);
   lines2.push(`  入金期日: ${inv.payment_date}`);
   if (subject) lines2.push(`  件名: ${subject}`);
