@@ -16,11 +16,14 @@ Claude Code や Claude Desktop から、仕訳登録・請求書作成・月次�
 | ツール | 用途 |
 |---|---|
 | `authenticate` | OAuth認証・状態確認 |
-| `pending_transactions` | 未処理（未仕訳）の口座明細を一覧表示 |
+| `pending_transactions` | 未処理の口座明細を一覧表示 |
 | `create_deal` | 取引（仕訳）を登録 |
 | `monthly_summary` | 月次の収支を勘定科目別に集計 |
+| `list_deals` | 登録済みの取引を科目・期間で絞込表示 |
 | `create_invoice` | 請求書を作成（下書き） |
 | `list_invoices` | 請求書の一覧を表示 |
+
+> **注意:** `pending_transactions` が返す「未処理明細」は *未仕訳の明細ではありません*。freee は取引を登録しても口座明細の消し込み（マッチング）を自動では行わないため、**仕訳済みの明細も一覧に残り続けます**。一覧をそのまま `create_deal` でループ処理すると二重計上になります。仕訳前に `list_deals` で既存取引を確認し、突合してから登録してください。
 
 ## 前提条件
 
@@ -150,14 +153,17 @@ Claude: pending_transactions() を実行
   #2 03/25 出金 ¥2,200 ANTHROPIC
   ...
 
+Claude: list_deals(account_item: "通信費") で既存取引と突合
+→ #2 の ¥2,200 は登録済み。残り4件が未計上
+
 Claude: 以下の仕訳でよいですか？
   #1 通信費 / さくらインターネット / レンタルサーバー
-  #2 通信費 / Anthropic / Claude Pro
   ...
 
 ユーザー: ok
 
-Claude: create_deal() x 5 を実行 → 全件登録完了
+Claude: create_deal() x 4 を実行 → 登録完了
+Claude: monthly_summary() で件数・金額が想定どおりか検算
 ```
 
 ### 請求書作成
@@ -186,6 +192,25 @@ Claude: monthly_summary()
   収入: ¥990,000
   支出: ¥234,567
   差引利益: ¥755,433
+```
+
+### 内訳の確認
+
+`monthly_summary` は科目別の合計しか返しません。内訳を見るには `list_deals` を使います。
+
+```
+ユーザー: 3月の支払手数料の中身は？
+
+Claude: list_deals(
+  start_date: "2026-03-01",
+  end_date: "2026-03-31",
+  account_item: "支払手数料"
+)
+→ 取引一覧: 4件（2026-03-01 〜 2026-03-31／科目: 支払手数料）
+  #1 (id:xxx) 03-01 支出 ¥145 支払手数料 [PayPay銀行]
+  #2 (id:xxx) 03-09 支出 ¥145 支払手数料 [PayPay銀行]
+  ...
+  表示分合計: ¥580
 ```
 
 ## 使用する freee API

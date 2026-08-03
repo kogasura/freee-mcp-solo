@@ -89,6 +89,10 @@ export interface Partner {
   code?: string;
   shortcut1?: string;
   shortcut2?: string;
+  /** 取引先の担当者名。請求書の宛名ブロックに出力される */
+  contact_name?: string;
+  /** 既定の敬称（御中 など） */
+  default_title?: string;
 }
 
 export interface PartnersResponse {

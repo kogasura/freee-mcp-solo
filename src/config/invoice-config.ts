@@ -23,6 +23,12 @@ export interface InvoiceConfig {
     layout: string;
     message: string;
     notes: string;
+    /** 自社担当者名。請求書の自社情報欄に出力される */
+    company_contact_name: string;
+    /** 取引先担当者に自動で付ける敬称。空文字なら付けない */
+    contact_honorific: string;
+    /** 取引先に既定敬称がない場合に使う宛名の敬称 */
+    default_partner_title: string;
   };
   partners: Record<string, PartnerConfig>;
 }
@@ -38,9 +44,20 @@ const DEFAULT_CONFIG: InvoiceConfig = {
     layout: "default_classic",
     message: "下記の通りご請求申し上げます。",
     notes: "",
+    company_contact_name: "",
+    contact_honorific: "様",
+    default_partner_title: "御中",
   },
   partners: {},
 };
+
+/** 担当者名に敬称を付ける。既に敬称が付いていれば何もしない。 */
+export function applyHonorific(name: string, honorific: string): string {
+  const trimmed = (name ?? "").trim();
+  if (!trimmed || !honorific) return trimmed;
+  if (/(様|御中|殿)$/.test(trimmed)) return trimmed;
+  return `${trimmed} ${honorific}`;
+}
 
 export async function loadInvoiceConfig(): Promise<InvoiceConfig> {
   try {
