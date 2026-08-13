@@ -7,6 +7,7 @@ import { authenticate } from "./tools/authenticate.js";
 import { pendingTransactions } from "./tools/pending-transactions.js";
 import { createDeal } from "./tools/create-deal.js";
 import { monthlySummary } from "./tools/monthly-summary.js";
+import { listTaxCodes } from "./tools/list-tax-codes.js";
 import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
 import { listInvoices } from "./tools/list-invoices.js";
@@ -156,6 +157,23 @@ export function createMcpServer(): McpServer {
     },
     async (params) =>
       wrap(() => listDeals(client, cache, params))
+  );
+
+  // ── list_tax_codes ──
+  server.tool(
+    "list_tax_codes",
+    "税区分コードの一覧を取得する。list_deals が返す <tax:136> のようなコードの意味を調べるときや、他ソフトへ仕訳を移すときの写像を作るときに使う。",
+    {
+      codes: z
+        .string()
+        .optional()
+        .describe("コードで絞込（カンマ区切り。例: 2,136）"),
+      keyword: z
+        .string()
+        .optional()
+        .describe("名称の部分一致で絞込（例: 課税仕入）"),
+    },
+    async (params) => wrap(() => listTaxCodes(client, params))
   );
 
   // ── create_invoice ──
