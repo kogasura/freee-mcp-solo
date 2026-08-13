@@ -20,6 +20,9 @@ interface DealRow {
   description: string;
   partnerName: string;
   walletName: string;
+  /** freee の税区分コード。他ソフトへ仕訳を移すときに要る（税区分は
+   *  金額と違って画面から読み取れないため、API から拾うしかない）。 */
+  taxCode: number;
 }
 
 export async function listDeals(
@@ -85,6 +88,7 @@ export async function listDeals(
           ? partnerMap.get(deal.partner_id) ?? ""
           : "",
         walletName,
+        taxCode: detail.tax_code,
       });
     }
   }
@@ -160,6 +164,9 @@ function formatRows(
     if (row.description) line += ` / ${row.description}`;
     if (row.partnerName) line += ` / ${row.partnerName}`;
     line += ` [${row.walletName}]`;
+    // 税区分コードは末尾に付ける。既存の読み手（人間）は行頭から読むので、
+    // 後ろに足すぶんには従来の見え方を変えない。
+    line += ` <tax:${row.taxCode}>`;
     lines.push(line);
     seq++;
   }
