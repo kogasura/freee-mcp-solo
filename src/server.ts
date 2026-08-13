@@ -8,6 +8,8 @@ import { pendingTransactions } from "./tools/pending-transactions.js";
 import { createDeal } from "./tools/create-deal.js";
 import { monthlySummary } from "./tools/monthly-summary.js";
 import { listTaxCodes } from "./tools/list-tax-codes.js";
+import { trialBalance } from "./tools/trial-balance.js";
+import { listTransfers } from "./tools/list-transfers.js";
 import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
 import { listInvoices } from "./tools/list-invoices.js";
@@ -174,6 +176,64 @@ export function createMcpServer(): McpServer {
         .describe("名称の部分一致で絞込（例: 課税仕入）"),
     },
     async (params) => wrap(() => listTaxCodes(client, params))
+  );
+
+  // ── trial_balance ──
+  server.tool(
+    "trial_balance",
+    "貸借対照表（試算表）を取得する。科目ごとの期首残高・借方・貸方・期末残高を返す。期首残高は取引として記録されないため list_deals や monthly_summary では取れない。帳簿を他ソフトへ移すときや残高を突き合わせるときに使う。",
+    {
+      fiscal_year: z
+        .number()
+        .int()
+        .optional()
+        .describe("会計年度（例: 2026。省略時は今年）"),
+      start_month: z
+        .number()
+        .int()
+        .min(1)
+        .max(12)
+        .optional()
+        .describe("開始月 1-12（省略時は 1）"),
+      end_month: z
+        .number()
+        .int()
+        .min(1)
+        .max(12)
+        .optional()
+        .describe("終了月 1-12（省略時は開始月と同じ）"),
+      include_zero: z
+        .boolean()
+        .optional()
+        .describe("残高・増減がいずれも 0 の科目も出す（既定: 出さない）"),
+    },
+    async (params) => wrap(() => trialBalance(client, params))
+  );
+
+  // ── list_transfers ──
+  server.tool(
+    "list_transfers",
+    "口座振替の一覧を取得する。カードの引き落とし・口座間送金・現金の預け入れなど、freee が「取引」ではなく「振替」として持つものは list_deals に出てこない。帳簿を他ソフトへ移すときや残高が合わないときに使う。",
+    {
+      start_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-mm-dd形式で指定")
+        .optional()
+        .describe("発生日の開始 yyyy-mm-dd"),
+      end_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-mm-dd形式で指定")
+        .optional()
+        .describe("発生日の終了 yyyy-mm-dd"),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("取得件数（デフォルト: 100, 最大: 100）"),
+    },
+    async (params) => wrap(() => listTransfers(client, params))
   );
 
   // ── create_invoice ──
