@@ -8,6 +8,7 @@ import { pendingTransactions } from "./tools/pending-transactions.js";
 import { createDeal } from "./tools/create-deal.js";
 import { monthlySummary } from "./tools/monthly-summary.js";
 import { listTaxCodes } from "./tools/list-tax-codes.js";
+import { trialBalance } from "./tools/trial-balance.js";
 import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
 import { listInvoices } from "./tools/list-invoices.js";
@@ -174,6 +175,38 @@ export function createMcpServer(): McpServer {
         .describe("名称の部分一致で絞込（例: 課税仕入）"),
     },
     async (params) => wrap(() => listTaxCodes(client, params))
+  );
+
+  // ── trial_balance ──
+  server.tool(
+    "trial_balance",
+    "貸借対照表（試算表）を取得する。科目ごとの期首残高・借方・貸方・期末残高を返す。期首残高は取引として記録されないため list_deals や monthly_summary では取れない。帳簿を他ソフトへ移すときや残高を突き合わせるときに使う。",
+    {
+      fiscal_year: z
+        .number()
+        .int()
+        .optional()
+        .describe("会計年度（例: 2026。省略時は今年）"),
+      start_month: z
+        .number()
+        .int()
+        .min(1)
+        .max(12)
+        .optional()
+        .describe("開始月 1-12（省略時は 1）"),
+      end_month: z
+        .number()
+        .int()
+        .min(1)
+        .max(12)
+        .optional()
+        .describe("終了月 1-12（省略時は開始月と同じ）"),
+      include_zero: z
+        .boolean()
+        .optional()
+        .describe("残高・増減がいずれも 0 の科目も出す（既定: 出さない）"),
+    },
+    async (params) => wrap(() => trialBalance(client, params))
   );
 
   // ── create_invoice ──
