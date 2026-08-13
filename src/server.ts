@@ -9,6 +9,7 @@ import { createDeal } from "./tools/create-deal.js";
 import { monthlySummary } from "./tools/monthly-summary.js";
 import { listTaxCodes } from "./tools/list-tax-codes.js";
 import { trialBalance } from "./tools/trial-balance.js";
+import { listTransfers } from "./tools/list-transfers.js";
 import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
 import { listInvoices } from "./tools/list-invoices.js";
@@ -207,6 +208,32 @@ export function createMcpServer(): McpServer {
         .describe("残高・増減がいずれも 0 の科目も出す（既定: 出さない）"),
     },
     async (params) => wrap(() => trialBalance(client, params))
+  );
+
+  // ── list_transfers ──
+  server.tool(
+    "list_transfers",
+    "口座振替の一覧を取得する。カードの引き落とし・口座間送金・現金の預け入れなど、freee が「取引」ではなく「振替」として持つものは list_deals に出てこない。帳簿を他ソフトへ移すときや残高が合わないときに使う。",
+    {
+      start_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-mm-dd形式で指定")
+        .optional()
+        .describe("発生日の開始 yyyy-mm-dd"),
+      end_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-mm-dd形式で指定")
+        .optional()
+        .describe("発生日の終了 yyyy-mm-dd"),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("取得件数（デフォルト: 100, 最大: 100）"),
+    },
+    async (params) => wrap(() => listTransfers(client, params))
   );
 
   // ── create_invoice ──
