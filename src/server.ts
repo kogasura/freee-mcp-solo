@@ -11,6 +11,7 @@ import { listTaxCodes } from "./tools/list-tax-codes.js";
 import { trialBalance } from "./tools/trial-balance.js";
 import { listTransfers } from "./tools/list-transfers.js";
 import { listFixedAssets } from "./tools/list-fixed-assets.js";
+import { unrecordedTransactions } from "./tools/unrecorded-transactions.js";
 import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
 import { listInvoices } from "./tools/list-invoices.js";
@@ -255,6 +256,27 @@ export function createMcpServer(): McpServer {
         .describe("取得件数（デフォルト: 100, 最大: 100）"),
     },
     async (params) => wrap(() => listFixedAssets(client, params))
+  );
+
+  // ── unrecorded_transactions ──
+  server.tool(
+    "unrecorded_transactions",
+    "口座明細のうち、対応する取引が見当たらないものを挙げる（記帳漏れの疑い）。未処理明細をそのまま見ても記帳漏れは分からない——手で登録した取引は明細と紐付かないので、記帳済みでも未処理明細に残り続ける。取引の側と日付・金額で突き合わせて初めて分かる。月次の締めで使う。挙がるのは「確かめる価値がある明細」であって、記帳漏れと決まったわけではない。",
+    {
+      start_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-mm-dd形式で指定")
+        .describe("発生日の開始 yyyy-mm-dd（必須）"),
+      end_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-mm-dd形式で指定")
+        .describe("発生日の終了 yyyy-mm-dd（必須）"),
+      wallet_name: z
+        .string()
+        .optional()
+        .describe("口座名で絞込（部分一致）"),
+    },
+    async (params) => wrap(() => unrecordedTransactions(client, cache, params))
   );
 
   // ── create_invoice ──
