@@ -271,6 +271,35 @@ function lastDayOf(year, month) {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
+/** 仕訳の指紋。取引日・摘要・明細（科目・貸借・金額）で作る。 */
+function fingerprint(entry) {
+  const lines = entry.lines
+    .map((line) => `${line.account}/${line.side}/${line.amount}`)
+    .sort();
+  return `${entry.entry_date}|${entry.description}|${lines.join(",")}`;
+}
+
+/** kaikei に既にある仕訳を、期間で引いて指紋の多重集合にする。 */
+async function existingFingerprints(kaikei, from, to) {
+  const counts = new Map();
+  let cursor;
+  for (;;) {
+    // search_entries の上限は 100。超えると拒否される。
+    const args = { from, to, limit: 100 };
+    if (cursor) args.cursor = cursor;
+    const page = JSON.parse(await kaikei.call("search_entries", args));
+    for (const entry of page.entries ?? []) {
+      const key = fingerprint(entry);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    // **ページングを辿り切る。** 途中で止めると「まだ無い」と誤判定して
+    // 二重計上になる。
+    cursor = page.next_cursor;
+    if (!cursor) break;
+  }
+  return counts;
+}
+
 // ─── 本体 ────────────────────────────────────────────────────
 async function main() {
   const [period, ...flags] = process.argv.slice(2);
@@ -355,12 +384,39 @@ async function main() {
 
   // 記帳。**1件でも失敗したら止める**（どこまで入ったかを曖昧にしない）。
   if (post) {
-  console.log("■ kaikei へ記帳");
   const kaikei = new McpClient(kaikeiBin, [], process.env);
   await kaikei.initialize("sync-to-kaikei");
+
+  // **既に帳簿にあるものは記帳しない。** 同じ月を2回流しても二重計上に
+  // ならないようにする（ROADMAP Phase 4 の完了条件）。
+  //
+  // 同じ内容の取引が複数あることは普通にある（同じ日に同額の交通費が2件
+  // など）ので、**件数で突き合わせる**。freee に3件・帳簿に2件なら1件だけ
+  // 記帳する。
+  const existing = await existingFingerprints(kaikei, start, end);
+  const fresh = [];
+  let alreadyPosted = 0;
+  for (const entry of entries) {
+    const key = fingerprint(entry);
+    const remaining = existing.get(key) ?? 0;
+    if (remaining > 0) {
+      existing.set(key, remaining - 1);
+      alreadyPosted++;
+    } else {
+      fresh.push(entry);
+    }
+  }
+  if (alreadyPosted > 0) {
+    console.log(`■ 既に帳簿にある ${alreadyPosted} 件は記帳しません`);
+  }
+  if (fresh.length === 0) {
+    console.log("■ 記帳するものはありません");
+  } else {
+    console.log(`■ kaikei へ記帳（${fresh.length} 件）`);
+  }
   let posted = 0;
   try {
-    for (const entry of entries) {
+    for (const entry of fresh) {
       await kaikei.call("post_journal_entry", { ...entry, auto_tax_lines: false });
       posted++;
     }
