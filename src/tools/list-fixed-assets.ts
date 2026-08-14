@@ -16,6 +16,14 @@ import { FreeeClient } from "../api/freee-client.js";
  *
  * `book_value`（帳簿価額）は**未償却残高**であって取得価額ではない。両者を
  * 混ぜると、償却が進んだ資産ほど償却費を過小に計算する。
+ *
+ * # 権限が要る
+ *
+ * このエンドポイントは `accounting:fixed_assets:read` を要求する。既定の
+ * `read write` で認可しても付与されないことがあり、その場合は 403 になる
+ * （weBanana.SP の実アカウントで確認した）。**403 のときは何をすれば取れる
+ * ようになるかを返す**——「権限がありません」だけでは、利用者は毎年ここで
+ * 詰まる。
  */
 interface FixedAsset {
   id: number;
@@ -104,10 +112,33 @@ export async function listFixedAssets(
   params: ListFixedAssetsParams
 ): Promise<string> {
   const limit = Math.min(params.limit ?? 100, 100);
-  const res = await client.get<FixedAssetsResponse>("/api/1/fixed_assets", {
-    target_date: params.target_date,
-    limit,
-  });
+  let res: FixedAssetsResponse;
+  try {
+    res = await client.get<FixedAssetsResponse>("/api/1/fixed_assets", {
+      target_date: params.target_date,
+      limit,
+    });
+  } catch (error) {
+    // **「権限がありません」で終わらせない。** 何をすれば取れるように
+    // なるのかが分からないと、利用者は毎年ここで詰まる。
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("403") || message.includes("access_denied")) {
+      throw new Error(
+        "固定資産台帳を取れませんでした（freee がこのアプリに固定資産の" +
+          "参照を許可していません）。\n" +
+          "確認済みの事実: 取得したトークンのスコープに " +
+          "accounting:fixed_assets:read が含まれていません" +
+          "（deals など他のエンドポイントは通ります）。\n" +
+          "取れるようにするには、freee の開発者ページでアプリの権限に" +
+          "固定資産を追加し、authenticate で取り直してください。" +
+          "プランによっては固定資産APIを提供していないことがあります。\n" +
+          "それでも取れない場合は、freee の画面（決算 → 固定資産台帳）から" +
+          "取得年月日・取得価額・耐用年数・償却方法・事業専用割合を" +
+          "書き写すことになります。"
+      );
+    }
+    throw error;
+  }
   const assets = res.fixed_assets ?? [];
 
   if (assets.length === 0) {
