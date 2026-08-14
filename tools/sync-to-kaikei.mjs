@@ -203,10 +203,13 @@ function toEntry(deal) {
     ["debit", debitCode],
     ["credit", creditCode],
   ]) {
-    const line = { account: lineCode, side, amount };
+    // **freee の取引IDを残す。** これが無いと、再実行したときの重複判定を
+    // 「取引日・摘要・明細が同じ」という推測に頼ることになる。同じ内容の
+    // 別取引（同じ日に同額の交通費が2件など）と区別できない。
+    const line = { account: lineCode, side, amount, tags: { imported_tx_id: String(deal.id) } };
     if (!NON_PL_ACCOUNTS.has(lineCode)) {
       if (deal.tax_code === FREEE_OUT_OF_SCOPE) {
-        line.tags = { tax_category: "OUT_OF_SCOPE" };
+        line.tags.tax_category = "OUT_OF_SCOPE";
       } else {
         const tax = TAX_CODE_MAP[deal.tax_code];
         if (!tax) {
@@ -215,7 +218,7 @@ function toEntry(deal) {
               `ありません（科目: ${deal.account}）`
           );
         }
-        line.tags = { tax_category: tax };
+        line.tags.tax_category = tax;
       }
     }
     lines.push(line);
@@ -273,14 +276,23 @@ function lastDayOf(year, month) {
 
 /** 仕訳の指紋。取引日・摘要・明細（科目・貸借・金額）で作る。 */
 function fingerprint(entry) {
+  // **タグは見ない。** imported_tx_id を付ける前に記帳した仕訳と、付けた後の
+  // 仕訳が同じ指紋になる必要がある（そうでないと古い月で二重計上になる）。
   const lines = entry.lines
     .map((line) => `${line.account}/${line.side}/${line.amount}`)
     .sort();
   return `${entry.entry_date}|${entry.description}|${lines.join(",")}`;
 }
 
-/** kaikei に既にある仕訳を、期間で引いて指紋の多重集合にする。 */
-async function existingFingerprints(kaikei, from, to) {
+/**
+ * kaikei に既にある仕訳を期間で引き、**取引IDの集合**と**指紋の多重集合**を返す。
+ *
+ * 取引ID（imported_tx_id）があれば厳密に判定できる。指紋も併用するのは、
+ * **このタグを付ける前に記帳した分**が帳簿にあるためである。ID だけで判定すると、
+ * 古い月を流し直したときに全件が二重計上になる。
+ */
+async function existingEntries(kaikei, from, to) {
+  const ids = new Set();
   const counts = new Map();
   let cursor;
   for (;;) {
@@ -289,6 +301,10 @@ async function existingFingerprints(kaikei, from, to) {
     if (cursor) args.cursor = cursor;
     const page = JSON.parse(await kaikei.call("search_entries", args));
     for (const entry of page.entries ?? []) {
+      for (const line of entry.lines ?? []) {
+        const id = line.tags?.imported_tx_id;
+        if (id) ids.add(String(id));
+      }
       const key = fingerprint(entry);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
@@ -297,7 +313,7 @@ async function existingFingerprints(kaikei, from, to) {
     cursor = page.next_cursor;
     if (!cursor) break;
   }
-  return counts;
+  return { ids, counts };
 }
 
 // ─── 本体 ────────────────────────────────────────────────────
@@ -393,14 +409,21 @@ async function main() {
   // 同じ内容の取引が複数あることは普通にある（同じ日に同額の交通費が2件
   // など）ので、**件数で突き合わせる**。freee に3件・帳簿に2件なら1件だけ
   // 記帳する。
-  const existing = await existingFingerprints(kaikei, start, end);
+  const existing = await existingEntries(kaikei, start, end);
   const fresh = [];
   let alreadyPosted = 0;
   for (const entry of entries) {
+    const txId = entry.lines[0]?.tags?.imported_tx_id;
+    // 取引IDで一致すれば確実に同じ取引。
+    if (txId && existing.ids.has(txId)) {
+      alreadyPosted++;
+      continue;
+    }
+    // 取引IDが無い（このタグを付ける前に記帳した）分は指紋で判定する。
     const key = fingerprint(entry);
-    const remaining = existing.get(key) ?? 0;
+    const remaining = existing.counts.get(key) ?? 0;
     if (remaining > 0) {
-      existing.set(key, remaining - 1);
+      existing.counts.set(key, remaining - 1);
       alreadyPosted++;
     } else {
       fresh.push(entry);
