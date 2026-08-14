@@ -10,6 +10,7 @@ import { monthlySummary } from "./tools/monthly-summary.js";
 import { listTaxCodes } from "./tools/list-tax-codes.js";
 import { trialBalance } from "./tools/trial-balance.js";
 import { listTransfers } from "./tools/list-transfers.js";
+import { listFixedAssets } from "./tools/list-fixed-assets.js";
 import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
 import { listInvoices } from "./tools/list-invoices.js";
@@ -234,6 +235,26 @@ export function createMcpServer(): McpServer {
         .describe("取得件数（デフォルト: 100, 最大: 100）"),
     },
     async (params) => wrap(() => listTransfers(client, params))
+  );
+
+  // ── list_fixed_assets ──
+  server.tool(
+    "list_fixed_assets",
+    "固定資産台帳の一覧を取得する。取得年月日・取得価額・耐用年数・償却方法・事業専用割合と、freee が計算した当期償却費を返す。減価償却の計上漏れは決算書を見ても分からない（貸借は一致したまま所得だけが過大になる）ので、決算のときに必ず確かめる。帳簿価額は未償却残高であって取得価額ではない。",
+    {
+      target_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-mm-dd形式で指定")
+        .describe("どの時点の台帳か yyyy-mm-dd（必須）"),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("取得件数（デフォルト: 100, 最大: 100）"),
+    },
+    async (params) => wrap(() => listFixedAssets(client, params))
   );
 
   // ── create_invoice ──
