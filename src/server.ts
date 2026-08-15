@@ -15,6 +15,7 @@ import { listTransfers } from "./tools/list-transfers.js";
 import { listFixedAssets } from "./tools/list-fixed-assets.js";
 import { unrecordedTransactions } from "./tools/unrecorded-transactions.js";
 import { reconcileWallets } from "./tools/reconcile-wallets.js";
+import { compareWalletMovements } from "./tools/compare-wallet-movements.js";
 import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
 import { listInvoices } from "./tools/list-invoices.js";
@@ -179,6 +180,21 @@ export function createMcpServer(): McpServer {
         .describe("実際に送信する（既定: 下見のみ）"),
     },
     async (params) => wrap(() => setDealPartner(client, params))
+  );
+
+  // ── compare_wallet_movements ──
+  server.tool(
+    "compare_wallet_movements",
+    "口座の1件ごとの動きを帳簿と明細で突き合わせ、どちらに何件多いかを出す。残高を比べる reconcile_wallets とは別で、残高が合っていても見つかる誤り（二重計上・記帳漏れ）を探す。差が出ても誤りとは限らない（1明細を複数取引に分けた場合など）。",
+    {
+      start_date: z.string().describe("開始日 YYYY-MM-DD"),
+      end_date: z.string().describe("終了日 YYYY-MM-DD"),
+      wallet_name: z
+        .string()
+        .optional()
+        .describe("口座名の部分一致で絞る（省略時は全口座）"),
+    },
+    async (params) => wrap(() => compareWalletMovements(client, cache, params))
   );
 
   // ── list_partners ──
