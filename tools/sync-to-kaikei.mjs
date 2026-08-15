@@ -30,6 +30,7 @@
 // 記帳後に freee の月次サマリーと科目ごとに突き合わせ、1円でも違えば知らせる。
 
 import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 // ─── 写像 ────────────────────────────────────────────────────
 // freee の科目名 → kaikei の科目コード。**ここに無い科目はエラーにする。**
@@ -95,6 +96,52 @@ const TAX_CODE_MAP = {
 
 // 税区分を付けない科目（資産・負債・資本）。
 const NON_PL_ACCOUNTS = new Set(["410", "420", "325", "135", "110", "100", "400"]);
+
+// freee の取引先名 → kaikei の取引先コード。
+//
+// **自動生成しない。** 取引先コードは仕訳のタグとして帳簿に残り続け、
+// journal_lines は追記型なので後から変えられない。日本語名のローマ字化は
+// 一意に決まらない（大久保 = okubo / ohkubo / ookubo）ので、人が決めた対応を
+// ここに書く。`list_partners` が出す CSV と揃えること。
+//
+// 表記ゆれで別登録されているものは同じコードに寄せてある
+// （ユーザー確認済み。2026-08-15）。
+const PARTNER_MAP = {
+  スターパートナーズ合同会社: "star-partners",
+  株式会社ＨｏｇＷｏｒｋｓ: "hogworks",
+  "株式会社ガリレオ・プロジェクト": "galileo-project",
+  ダイパネ工芸株式会社: "daipane",
+  JDF株式会社: "jdf",
+  三井住友カード: "smcc",
+  大久保悠生: "okubo-yuuki",
+  グランデ: "grande",
+  スターバックス: "starbucks",
+  ムームードメイン: "muumuu-domain",
+  Microsoft: "microsoft",
+  アクア少額短期保険: "aqua-ssi",
+  povo: "povo",
+  Amazon: "amazon",
+  Steam: "steam",
+  イオンリテール: "aeon-retail",
+  東京電力: "tepco",
+  Apple: "apple",
+  Google: "google",
+  note: "note",
+  "LUCID SOFTWARE": "lucid-software",
+  OpenAI: "openai",
+  "北原 一平": "kitahara",
+  キタハラヘイイチ: "kitahara",
+  "株式会社 ビーテック": "bitech",
+  株式会社ビーテック: "bitech",
+  ライフカード: "lifecard",
+  GMOペパボ: "gmo-pepabo",
+  東急パワーサプライ: "tokyu-power-supply",
+  Anthropic: "anthropic",
+  "Aqua Voice": "aqua-voice",
+  エックスサーバー: "xserver",
+  株式会社VISELINK: "viselink",
+  株式会社バイスリンク: "viselink",
+};
 
 // freee の「対象外」。資産・負債の振替なら正しい。損益科目に付いていても
 // freee の判断をそのまま写す（人間が確認済み。2026-08-13）。
@@ -183,7 +230,7 @@ class McpClient {
 // ─── freee の取引を kaikei の仕訳に変換 ──────────────────────
 class Unconvertible extends Error {}
 
-function toEntry(deal) {
+export function toEntry(deal) {
   const code = ACCOUNT_MAP[deal.account];
   if (!code) {
     throw new Unconvertible(`科目「${deal.account}」に対応する kaikei の科目がありません`);
@@ -207,6 +254,22 @@ function toEntry(deal) {
     // 「取引日・摘要・明細が同じ」という推測に頼ることになる。同じ内容の
     // 別取引（同じ日に同額の交通費が2件など）と区別できない。
     const line = { account: lineCode, side, amount, tags: { imported_tx_id: String(deal.id) } };
+    // **取引先は損益科目かどうかに関わらず付ける。** 誰との取引かは
+    // 口座側の明細にも当てはまる。適格請求書の検証（JpTaxPolicy）は
+    // 税区分と同じ明細に取引先が要るので、税区分を付ける行には必ず載る。
+    if (deal.partner) {
+      const counterparty = PARTNER_MAP[deal.partner];
+      if (!counterparty) {
+        // **黙って落とさない。** 取引先が付かないと、適格請求書が要る
+        // 税区分でも相手方を辿れない（kaikei の report/verify が件数を出す）。
+        throw new Unconvertible(
+          `取引先「${deal.partner}」に対応する kaikei の取引先コードが` +
+            `ありません。PARTNER_MAP に追加し、kaikei counterparty import で` +
+            `マスタにも登録してください`
+        );
+      }
+      line.tags.counterparty = counterparty;
+    }
     if (!NON_PL_ACCOUNTS.has(lineCode)) {
       if (deal.tax_code === FREEE_OUT_OF_SCOPE) {
         line.tags.tax_category = "OUT_OF_SCOPE";
@@ -230,9 +293,9 @@ function toEntry(deal) {
 // `list_deals` の1行を解釈する。
 // 例: #1 (id:123) 06-15 収入 ¥550,000 売上高 / 摘要 [口座] <tax:129>
 const DEAL_LINE =
-  /^#\d+ \(id:(?<id>\d+)\) (?<md>\d{2}-\d{2}) (?<kind>収入|支出) ¥(?<amount>[\d,]+) (?<rest>.+) \[(?<wallet>[^\]]+)\] <tax:(?<tax>\d+)>$/;
+  /^#\d+ \(id:(?<id>\d+)\) (?<md>\d{2}-\d{2}) (?<kind>収入|支出) ¥(?<amount>[\d,]+) (?<rest>.+) \[(?<wallet>[^\]]+)\] <tax:(?<tax>\d+)>(?: <partner:(?<partner>[^>]*)>)?$/;
 
-function parseDeals(text, year) {
+export function parseDeals(text, year) {
   const deals = [];
   for (const raw of text.split("\n")) {
     const match = DEAL_LINE.exec(raw.trim());
@@ -247,6 +310,7 @@ function parseDeals(text, year) {
       description: parts.slice(1).join(" / "),
       wallet: match.groups.wallet,
       tax_code: Number(match.groups.tax),
+      partner: match.groups.partner ?? "",
     });
   }
   return deals;
@@ -537,7 +601,13 @@ async function main() {
   console.log("  全科目が一致しました");
 }
 
-main().catch((error) => {
-  console.error(error.stack ?? String(error));
-  process.exit(1);
-});
+// **直接実行したときだけ走らせる。** テストから import しただけで同期が
+// 動き出す（freee を叩き、--post なら記帳する）のは事故になる。
+const invokedDirectly =
+  process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
+if (invokedDirectly) {
+  main().catch((error) => {
+    console.error(error.stack ?? String(error));
+    process.exit(1);
+  });
+}

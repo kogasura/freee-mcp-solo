@@ -25,6 +25,38 @@ interface DealRow {
   taxCode: number;
 }
 
+/**
+ * 取引1件を1行にする。
+ *
+ * **`tools/sync-to-kaikei.mjs` がこの行を正規表現で読む。** 形式を変えると
+ * 同期が黙って0件になるか、値を取り違える。`test/sync-to-kaikei.test.mjs`
+ * が、ここが作った行をそのまま同期側に食わせて往復を固定している。
+ */
+export function formatDealLine(row: DealRow, seq: number): string {
+  const side = row.type === "income" ? "収入" : "支出";
+  const date = row.date.slice(5); // mm-dd
+  const parts = [
+    `#${seq} (id:${row.dealId})`,
+    date,
+    side,
+    formatYen(row.amount),
+    row.accountName,
+  ];
+  let line = parts.join(" ");
+  if (row.description) line += ` / ${row.description}`;
+  line += ` [${row.walletName}]`;
+  // 税区分コードは末尾に付ける。既存の読み手（人間）は行頭から読むので、
+  // 後ろに足すぶんには従来の見え方を変えない。
+  line += ` <tax:${row.taxCode}>`;
+  // **取引先は区切り付きで出す。** 以前は摘要の後ろに ` / 取引先` として
+  // 並べていたが、摘要も取引先も省略されうるので、`科目 / A` の A が摘要か
+  // 取引先かを位置から決められなかった。実際に sync-to-kaikei.mjs は
+  // すべてを摘要として読み、**47 件の仕訳の摘要に取引先名が混ざった**
+  // （「食料品 / イオンリテール」）。
+  if (row.partnerName) line += ` <partner:${row.partnerName}>`;
+  return line;
+}
+
 export async function listDeals(
   client: FreeeClient,
   cache: MasterCache,
@@ -151,23 +183,7 @@ function formatRows(
 
   let seq = 1;
   for (const row of rows) {
-    const side = row.type === "income" ? "収入" : "支出";
-    const date = row.date.slice(5); // mm-dd
-    const parts = [
-      `#${seq} (id:${row.dealId})`,
-      date,
-      side,
-      formatYen(row.amount),
-      row.accountName,
-    ];
-    let line = parts.join(" ");
-    if (row.description) line += ` / ${row.description}`;
-    if (row.partnerName) line += ` / ${row.partnerName}`;
-    line += ` [${row.walletName}]`;
-    // 税区分コードは末尾に付ける。既存の読み手（人間）は行頭から読むので、
-    // 後ろに足すぶんには従来の見え方を変えない。
-    line += ` <tax:${row.taxCode}>`;
-    lines.push(line);
+    lines.push(formatDealLine(row, seq));
     seq++;
   }
 
