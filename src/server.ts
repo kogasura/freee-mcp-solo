@@ -9,6 +9,7 @@ import { createDeal } from "./tools/create-deal.js";
 import { monthlySummary } from "./tools/monthly-summary.js";
 import { listTaxCodes } from "./tools/list-tax-codes.js";
 import { listPartners } from "./tools/list-partners.js";
+import { setDealPartner } from "./tools/set-deal-partner.js";
 import { trialBalance } from "./tools/trial-balance.js";
 import { listTransfers } from "./tools/list-transfers.js";
 import { listFixedAssets } from "./tools/list-fixed-assets.js";
@@ -163,6 +164,21 @@ export function createMcpServer(): McpServer {
     },
     async (params) =>
       wrap(() => listDeals(client, cache, params))
+  );
+
+  // ── set_deal_partner ──
+  server.tool(
+    "set_deal_partner",
+    "既存の取引に取引先を設定する。freee の取引更新は全置換なので、明細と決済はそのまま写す。既定は下見で、commit を付けたときだけ送信する。送信後は取引先以外が変わっていないかを確かめ、変わっていれば以降を中止する。",
+    {
+      deal_ids: z.string().describe("対象の取引ID（カンマ区切り）"),
+      partner_id: z.number().describe("設定する取引先ID"),
+      commit: z
+        .boolean()
+        .optional()
+        .describe("実際に送信する（既定: 下見のみ）"),
+    },
+    async (params) => wrap(() => setDealPartner(client, params))
   );
 
   // ── list_partners ──
