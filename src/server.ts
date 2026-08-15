@@ -12,6 +12,7 @@ import { trialBalance } from "./tools/trial-balance.js";
 import { listTransfers } from "./tools/list-transfers.js";
 import { listFixedAssets } from "./tools/list-fixed-assets.js";
 import { unrecordedTransactions } from "./tools/unrecorded-transactions.js";
+import { reconcileWallets } from "./tools/reconcile-wallets.js";
 import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
 import { listInvoices } from "./tools/list-invoices.js";
@@ -277,6 +278,17 @@ export function createMcpServer(): McpServer {
         .describe("口座名で絞込（部分一致）"),
     },
     async (params) => wrap(() => unrecordedTransactions(client, cache, params))
+  );
+
+  // ── reconcile_wallets ──
+  server.tool(
+    "reconcile_wallets",
+    "帳簿上の口座残高と、口座の実際の明細を月ごとに突き合わせる。損益は合うのに残高だけ合わない誤り（同じ出金の二重計上など。片方が事業主貸なら損益は変わらないので収支サマリーでは見つからない）を見つける。食い違う月が分かるので、探す範囲を絞れる。期首の食い違いは前年以前の開始残高の問題なので、月々のものと分けて出す。決算前と月次の締めで使う。",
+    {
+      year: z.number().int().min(2000).max(2100).describe("対象の年（西暦）"),
+      wallet_name: z.string().optional().describe("口座名で絞込（部分一致）"),
+    },
+    async (params) => wrap(() => reconcileWallets(client, cache, params))
   );
 
   // ── create_invoice ──
