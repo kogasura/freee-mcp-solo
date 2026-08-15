@@ -8,6 +8,7 @@ import { pendingTransactions } from "./tools/pending-transactions.js";
 import { createDeal } from "./tools/create-deal.js";
 import { monthlySummary } from "./tools/monthly-summary.js";
 import { listTaxCodes } from "./tools/list-tax-codes.js";
+import { listPartners } from "./tools/list-partners.js";
 import { trialBalance } from "./tools/trial-balance.js";
 import { listTransfers } from "./tools/list-transfers.js";
 import { listFixedAssets } from "./tools/list-fixed-assets.js";
@@ -162,6 +163,19 @@ export function createMcpServer(): McpServer {
     },
     async (params) =>
       wrap(() => listDeals(client, cache, params))
+  );
+
+  // ── list_partners ──
+  server.tool(
+    "list_partners",
+    "取引先の一覧を取得し、kaikei counterparty import に渡せる CSV を添えて返す。適格請求書発行事業者かどうかは、登録番号が入っているときだけ true とし、それ以外は空欄（未確認）にする。",
+    {
+      include_unavailable: z
+        .boolean()
+        .optional()
+        .describe("使用停止の取引先も含める（既定: 含めない）"),
+    },
+    async (params) => wrap(() => listPartners(client, params))
   );
 
   // ── list_tax_codes ──
