@@ -23,6 +23,24 @@ export class FreeeClient {
     return this.request<T>(url.toString(), { method: "GET" });
   }
 
+  /**
+   * 既存のリソースを更新する。
+   *
+   * **freee の更新は全置換である。** 取引の更新では `details` を渡さないと
+   * 明細が消える。呼び出し側は取得した内容をすべて写してから、変えたい所
+   * だけを差し替えること。
+   */
+  async put<T>(path: string, body: Record<string, unknown>): Promise<T> {
+    const companyId = await this.tokenManager.getCompanyId();
+    const url = `${BASE_URL}${path}`;
+
+    return this.request<T>(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company_id: companyId, ...body }),
+    });
+  }
+
   async post<T>(path: string, body: Record<string, unknown>): Promise<T> {
     const companyId = await this.tokenManager.getCompanyId();
     const url = `${BASE_URL}${path}`;
