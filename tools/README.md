@@ -11,7 +11,7 @@ set -a; . ~/dev/kaikei/.env; set +a
 export APP_DATABASE_URL="postgres://.../kaikei_webanana"
 export KAIKEI_BIN="$HOME/dev/kaikei/target/debug/kaikei-mcp.exe"
 
-node tools/sync-to-kaikei.mjs 2026-09              # 下見（記帳しない）
+node tools/sync-to-kaikei.mjs 2026-09              # 下見（記帳しないが、何件入るかは数える）
 node tools/sync-to-kaikei.mjs 2026-09 --post       # 記帳して突き合わせる
 node tools/sync-to-kaikei.mjs 2026-07 --reconcile  # 記帳済みの月を後から検算
 ```
@@ -22,6 +22,19 @@ node tools/sync-to-kaikei.mjs 2026-07 --reconcile  # 記帳済みの月を後か
 2. kaikei の仕訳に変換する（**変換できないものがあれば中止**。近い科目に寄せない）
 3. 記帳する（**1件でも失敗したらそこで止める**）
 4. freee の月次サマリーと **kaikei の試算表**を科目コードで突き合わせる
+
+### 下見で「流し直したら何件入るか」が分かる
+
+**帳簿は追記型で、二重計上は逆仕訳でしか消せない。** だから入れる前に
+知れることに意味がある。`KAIKEI_BIN` があれば、下見でも帳簿と突き合わせて
+`この月を流し直すと N 件が新しく入ります` と出す。
+
+記帳済みの月で N が 0 でなければ**流してはいけない**。摘要の作り方が変わって
+指紋が合っていない疑いがある。実際、取引先の解析を直したときに
+2026年の 40 件（3月18・5月2・6月12・7月8）がこの状態になっていた。
+帳簿には `振込 ジエイデイーエフ（カ / JDF株式会社` と摘要に取引先名まで
+入っており、直した後の同期は `振込 ジエイデイーエフ（カ` を作るためである。
+`legacyFingerprints` で旧い形も照合するようにして 0 件に戻した。
 
 ### 気をつけていること
 

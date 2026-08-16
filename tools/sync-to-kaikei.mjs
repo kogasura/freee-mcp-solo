@@ -380,6 +380,79 @@ async function existingEntries(kaikei, from, to) {
   return { ids, counts };
 }
 
+/** kaikei の取引先コード → freee の取引先名（複数あり得る）。 */
+const PARTNER_NAMES_BY_CODE = new Map();
+for (const [name, code] of Object.entries(PARTNER_MAP)) {
+  const names = PARTNER_NAMES_BY_CODE.get(code) ?? [];
+  names.push(name);
+  PARTNER_NAMES_BY_CODE.set(code, names);
+}
+
+/**
+ * **摘要に取引先名が付いていた頃の指紋。**
+ *
+ * 取引先の解析を直す前は、`list_deals` の1行が
+ * `売上高 / 振込 ジエイデイーエフ（カ / JDF株式会社` のように取引先を
+ * ` / ` 区切りで並べていた。摘要は「先頭の科目を除いた残り全部」なので、
+ * **取引先名まで摘要に入った**。実帳簿の2026年6月には、こうして
+ * `振込 ジエイデイーエフ（カ / JDF株式会社` と記帳された仕訳がある。
+ *
+ * いまの同期は `振込 ジエイデイーエフ（カ` を作るので、指紋が合わない。
+ * 帳簿は追記型で摘要を直せず、これらには `imported_tx_id` も無い
+ * （タグを足す前の分）。**そのまま流し直すと二重計上になる**。
+ * 実際、2026年6月の134件のうち12件がそうだった。
+ *
+ * # なぜ後方一致で切り落とさないのか
+ *
+ * 摘要には ` / ` が正当に入り得る（freee の摘要そのものが `A / B`）。
+ * 末尾を機械的に落とすと、別の取引を同じものと見なしかねない。
+ * **`PARTNER_MAP` にある名前だけ**を候補にすれば、この不具合が付け得た
+ * 名前しか当たらない。
+ */
+function legacyFingerprints(entry) {
+  const code = entry.lines[0]?.tags?.counterparty;
+  if (!code) return [];
+  return (PARTNER_NAMES_BY_CODE.get(code) ?? []).map((name) =>
+    fingerprint({ ...entry, description: `${entry.description} / ${name}` })
+  );
+}
+
+/**
+ * 記帳するもの（`fresh`）と、既に帳簿にあるもの（`alreadyPosted`）に分ける。
+ *
+ * **純関数にしてある。** 記帳せずに「流し直したら何件入るか」を数えられる
+ * ようにするため。追記型の帳簿では二重計上は逆仕訳でしか消せないので、
+ * **入れる前に分かること**に意味がある。
+ *
+ * `existing.counts` を書き換えるので、呼び出し側は使い回さないこと。
+ */
+export function splitAlreadyPosted(entries, existing) {
+  const fresh = [];
+  let alreadyPosted = 0;
+  for (const entry of entries) {
+    const txId = entry.lines[0]?.tags?.imported_tx_id;
+    // 取引IDで一致すれば確実に同じ取引。
+    if (txId && existing.ids.has(txId)) {
+      alreadyPosted++;
+      continue;
+    }
+    // 取引IDが無い（このタグを付ける前に記帳した）分は指紋で判定する。
+    // 摘要に取引先名が付いていた頃の形も候補にする（legacyFingerprints）。
+    let matched = false;
+    for (const key of [fingerprint(entry), ...legacyFingerprints(entry)]) {
+      const remaining = existing.counts.get(key) ?? 0;
+      if (remaining > 0) {
+        existing.counts.set(key, remaining - 1);
+        matched = true;
+        break;
+      }
+    }
+    if (matched) alreadyPosted++;
+    else fresh.push(entry);
+  }
+  return { fresh, alreadyPosted };
+}
+
 // ─── 本体 ────────────────────────────────────────────────────
 async function main() {
   const [period, ...flags] = process.argv.slice(2);
@@ -453,8 +526,14 @@ async function main() {
     process.exit(1);
   }
 
-  if (!post && !reconcileOnly) {
+  // 下見で KAIKEI_BIN が無いときだけ、帳簿を見ずに終わる。
+  // **何件入るか分からないまま終わることを明示する。**
+  if (!post && !reconcileOnly && !kaikeiBin) {
     console.log("■ 下見なので記帳しません（記帳するには --post を付けてください）");
+    console.log(
+      "  KAIKEI_BIN が未設定なので、**既に帳簿にあるかは調べていません**。" +
+        "流し直しの前に確かめたい場合は KAIKEI_BIN を設定してください。"
+    );
     for (const entry of entries.slice(0, 3)) {
       console.log("  " + JSON.stringify(entry));
     }
@@ -463,7 +542,7 @@ async function main() {
   }
 
   // 記帳。**1件でも失敗したら止める**（どこまで入ったかを曖昧にしない）。
-  if (post) {
+  if (post || !reconcileOnly) {
   const kaikei = new McpClient(kaikeiBin, [], process.env);
   await kaikei.initialize("sync-to-kaikei");
 
@@ -473,29 +552,38 @@ async function main() {
   // 同じ内容の取引が複数あることは普通にある（同じ日に同額の交通費が2件
   // など）ので、**件数で突き合わせる**。freee に3件・帳簿に2件なら1件だけ
   // 記帳する。
+  //
+  // **下見でもここまで走らせる。** 追記型の帳簿では二重計上は逆仕訳でしか
+  // 消せないので、「流し直したら何件入るか」を**入れる前に**知れることに
+  // 意味がある。記帳済みの月で 0 件でなければ、指紋が合っていない。
   const existing = await existingEntries(kaikei, start, end);
-  const fresh = [];
-  let alreadyPosted = 0;
-  for (const entry of entries) {
-    const txId = entry.lines[0]?.tags?.imported_tx_id;
-    // 取引IDで一致すれば確実に同じ取引。
-    if (txId && existing.ids.has(txId)) {
-      alreadyPosted++;
-      continue;
-    }
-    // 取引IDが無い（このタグを付ける前に記帳した）分は指紋で判定する。
-    const key = fingerprint(entry);
-    const remaining = existing.counts.get(key) ?? 0;
-    if (remaining > 0) {
-      existing.counts.set(key, remaining - 1);
-      alreadyPosted++;
-    } else {
-      fresh.push(entry);
-    }
-  }
+  const { fresh, alreadyPosted } = splitAlreadyPosted(entries, existing);
   if (alreadyPosted > 0) {
     console.log(`■ 既に帳簿にある ${alreadyPosted} 件は記帳しません`);
   }
+
+  if (!post) {
+    console.log("■ 下見なので記帳しません（記帳するには --post を付けてください）");
+    if (fresh.length === 0) {
+      console.log("  この月を流し直しても、新しく入るものはありません");
+    } else {
+      console.log(`  **この月を流し直すと ${fresh.length} 件が新しく入ります**`);
+      for (const entry of fresh.slice(0, 10)) {
+        // 金額は文字列で持っている（そのまま足すと連結される）。
+        const total = entry.lines
+          .filter((l) => l.side === "debit")
+          .reduce((s, l) => s + Number(l.amount), 0);
+        console.log(
+          `    ${entry.entry_date} ¥${total.toLocaleString("ja-JP")} ${entry.description}`
+        );
+      }
+      if (fresh.length > 10) console.log(`    …ほか ${fresh.length - 10} 件`);
+    }
+    kaikei.close();
+    freee.close();
+    return;
+  }
+
   if (fresh.length === 0) {
     console.log("■ 記帳するものはありません");
   } else {
