@@ -10,6 +10,7 @@ import { monthlySummary } from "./tools/monthly-summary.js";
 import { listTaxCodes } from "./tools/list-tax-codes.js";
 import { listPartners } from "./tools/list-partners.js";
 import { setDealPartner } from "./tools/set-deal-partner.js";
+import { setDealAccount } from "./tools/set-deal-account.js";
 import { trialBalance } from "./tools/trial-balance.js";
 import { listTransfers } from "./tools/list-transfers.js";
 import { listFixedAssets } from "./tools/list-fixed-assets.js";
@@ -180,6 +181,21 @@ export function createMcpServer(): McpServer {
         .describe("実際に送信する（既定: 下見のみ）"),
     },
     async (params) => wrap(() => setDealPartner(client, params))
+  );
+
+  // ── set_deal_account ──
+  server.tool(
+    "set_deal_account",
+    "既存の取引の勘定科目を差し替える。取引を消して作り直さない（IDと口座明細の紐付けが変わるため）。freee の取引更新は全置換なので明細と決済はそのまま写す。明細が2件以上ある取引は断る。既定は下見で、commit を付けたときだけ送信する。送信後は科目以外が変わっていないかを確かめる。",
+    {
+      deal_id: z.coerce.number().describe("対象の取引ID"),
+      account_item: z.string().describe("差し替え後の勘定科目名（例: 未払金）"),
+      commit: z
+        .boolean()
+        .optional()
+        .describe("実際に送信する（既定: 下見のみ）"),
+    },
+    async (params) => wrap(() => setDealAccount(client, cache, params))
   );
 
   // ── compare_wallet_movements ──
