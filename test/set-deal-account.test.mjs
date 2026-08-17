@@ -177,3 +177,58 @@ test("科目の違いは問題として挙げない", () => {
     "変えたかったものを問題にしない"
   );
 });
+
+// ─── 摘要の差し替え ─────────────────────────────
+
+// **入金だけでは何月分の売上か分からない。** 年末に売掛金を立てるとき、
+// 翌年1〜2月の入金から遡って当年分を特定するが、その手がかりが摘要である。
+// 請求書は当てにできない（作っていないものがある）。
+
+import {
+  buildDescriptionUpdateBody,
+  whatChangedBesidesDescription,
+} from "../dist/tools/set-deal-account.js";
+
+// **本命。** 摘要だけが変わる。
+test("摘要を差し替える", () => {
+  const body = buildDescriptionUpdateBody(deal(), "振込 カ）ビーテツク（6月分）");
+  assert.equal(body.details[0].description, "振込 カ）ビーテツク（6月分）");
+});
+
+// **本命。** 科目・金額・税区分は変えない。
+test("摘要の差し替えで他の属性を変えない", () => {
+  const detail = buildDescriptionUpdateBody(deal(), "x").details[0];
+  assert.equal(detail.id, 10055657456);
+  assert.equal(detail.account_item_id, 事業主貸);
+  assert.equal(detail.tax_code, 2);
+  assert.equal(detail.amount, 90057);
+});
+
+// **本命。** 決済と取引先を落とさない。
+test("摘要の差し替えで決済と取引先を落とさない", () => {
+  const body = buildDescriptionUpdateBody(deal(), "x");
+  assert.equal(body.payments.length, 1);
+  assert.equal(body.payments[0].id, 10055657458);
+  assert.equal(body.partner_id, 120686330);
+});
+
+// **本命。** 科目が変わったら気づく。
+//
+// 摘要を直すついでに科目を失うと、決算書の欄が変わる。
+test("摘要以外が変わったら気づく", () => {
+  const before = deal();
+  const after = deal({
+    details: [{ ...deal().details[0], account_item_id: 未払金 }],
+  });
+  const problems = whatChangedBesidesDescription(before, after);
+  assert.ok(problems.some((p) => p.includes("勘定科目")), problems.join("/"));
+});
+
+// 摘要の違いは「問題」に挙げない（それが変えたかったものである）。
+test("摘要の違いは問題として挙げない", () => {
+  const before = deal();
+  const after = deal({
+    details: [{ ...deal().details[0], description: "新しい摘要" }],
+  });
+  assert.deepEqual(whatChangedBesidesDescription(before, after), []);
+});

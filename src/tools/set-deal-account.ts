@@ -104,6 +104,126 @@ export function whatChangedBesidesAccount(before: Deal, after: Deal): string[] {
   return problems;
 }
 
+/**
+ * 摘要を差し替えた本文を組み立てる。
+ *
+ * **科目の差し替え（[`buildAccountUpdateBody`]）と同じ危険を持つ。**
+ * 全置換なので、明細・決済・取引先を写し漏らすと消える。土台は共有する。
+ */
+export function buildDescriptionUpdateBody(
+  deal: Deal,
+  description: string
+): Record<string, unknown> {
+  const body = buildUpdateBody(deal, deal.partner_id ?? 0);
+  if (!deal.partner_id) delete body.partner_id;
+  const details = body.details as Record<string, unknown>[];
+  body.details = details.map((detail) => ({ ...detail, description }));
+  return body;
+}
+
+/**
+ * 既存の取引の**摘要**を差し替える。
+ *
+ * # なぜ要るのか
+ *
+ * **入金だけでは何月分の売上か分からない。** 年末に売掛金を立てるとき、
+ * 翌年1〜2月の入金から遡って当年分を特定するが、そのときの手がかりが摘要で
+ * ある。請求書は当てにできない（作っていないものがある）。
+ *
+ * 実際、2026年1月・2月の入金は摘要が「売上高」だけだった。
+ *
+ * # 明細が1件の取引だけを扱う（`set_deal_account` と同じ）
+ *
+ * 複数明細で「どの明細か」を指定させると、指定を誤ったとき別の明細を
+ * 書き換える。
+ */
+export async function setDealDescription(
+  client: FreeeClient,
+  params: { deal_id: number; description: string; commit?: boolean }
+): Promise<string> {
+  const before = (
+    await client.get<{ deal: Deal }>(`/api/1/deals/${params.deal_id}`, {})
+  ).deal;
+
+  if (before.details.length !== 1) {
+    return (
+      `#${params.deal_id} は明細が ${before.details.length} 件あります。` +
+      `どの明細を差し替えるか決められないので断ります。`
+    );
+  }
+
+  const detail = before.details[0];
+  const lines: string[] = [
+    `#${params.deal_id} ${before.issue_date} ¥${detail.amount.toLocaleString("ja-JP")}`,
+    `  「${detail.description ?? ""}」 → 「${params.description}」`,
+  ];
+
+  if ((detail.description ?? "") === params.description) {
+    lines.push("  既にこの摘要です。何もしません");
+    return lines.join("\n");
+  }
+  if (!params.commit) {
+    lines.push("");
+    lines.push("下見です。実際に変えるには commit を付けてください。");
+    return lines.join("\n");
+  }
+
+  await client.put(
+    `/api/1/deals/${params.deal_id}`,
+    buildDescriptionUpdateBody(before, params.description)
+  );
+
+  // ★変えた後に読み直して、摘要以外が変わっていないことを確かめる★
+  const after = (
+    await client.get<{ deal: Deal }>(`/api/1/deals/${params.deal_id}`, {})
+  ).deal;
+  const problems = whatChangedBesidesDescription(before, after);
+  if (problems.length > 0) {
+    lines.push(`  **摘要以外が変わりました: ${problems.join(" / ")}**`);
+    lines.push("  freee の画面で中身を確かめてください。");
+    return lines.join("\n");
+  }
+  if (after.details[0]?.description !== params.description) {
+    lines.push("  **摘要が変わっていません。** freee の画面で確かめてください。");
+    return lines.join("\n");
+  }
+  lines.push("  変更しました（摘要以外は変わっていません）");
+  return lines.join("\n");
+}
+
+/// 更新の前後で、摘要以外が変わっていないかを調べる。
+export function whatChangedBesidesDescription(before: Deal, after: Deal): string[] {
+  const problems: string[] = [];
+  if (before.issue_date !== after.issue_date) problems.push("取引日");
+  if (before.type !== after.type) problems.push("収支区分");
+  if (before.status !== after.status) {
+    problems.push(`状態（${before.status} → ${after.status}）`);
+  }
+  if ((before.partner_id ?? null) !== (after.partner_id ?? null)) {
+    problems.push("取引先");
+  }
+  if (before.details.length !== after.details.length) {
+    problems.push(
+      `明細の件数（${before.details.length} → ${after.details.length}）`
+    );
+  } else {
+    for (const [index, was] of before.details.entries()) {
+      const now = after.details[index];
+      if (was.amount !== now.amount) problems.push(`明細${index + 1}の金額`);
+      if (was.account_item_id !== now.account_item_id) {
+        problems.push(`明細${index + 1}の勘定科目`);
+      }
+      if (was.tax_code !== now.tax_code) problems.push(`明細${index + 1}の税区分`);
+    }
+  }
+  const beforePayments = before.payments?.length ?? 0;
+  const afterPayments = after.payments?.length ?? 0;
+  if (beforePayments !== afterPayments) {
+    problems.push(`決済の件数（${beforePayments} → ${afterPayments}）`);
+  }
+  return problems;
+}
+
 export async function setDealAccount(
   client: FreeeClient,
   cache: MasterCache,

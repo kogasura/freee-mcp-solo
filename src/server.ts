@@ -10,7 +10,7 @@ import { monthlySummary } from "./tools/monthly-summary.js";
 import { listTaxCodes } from "./tools/list-tax-codes.js";
 import { listPartners } from "./tools/list-partners.js";
 import { setDealPartner } from "./tools/set-deal-partner.js";
-import { setDealAccount } from "./tools/set-deal-account.js";
+import { setDealAccount, setDealDescription } from "./tools/set-deal-account.js";
 import { trialBalance } from "./tools/trial-balance.js";
 import { listTransfers } from "./tools/list-transfers.js";
 import { listFixedAssets } from "./tools/list-fixed-assets.js";
@@ -196,6 +196,18 @@ export function createMcpServer(): McpServer {
         .describe("実際に送信する（既定: 下見のみ）"),
     },
     async (params) => wrap(() => setDealAccount(client, cache, params))
+  );
+
+  // ── set_deal_description ──
+  server.tool(
+    "set_deal_description",
+    "既存の取引の摘要を差し替える。売上は「〇月分」を入れておかないと、年末に売掛金を立てるとき何月分か遡れない。freee の取引更新は全置換なので明細と決済はそのまま写す。明細が2件以上ある取引は断る。既定は下見。",
+    {
+      deal_id: z.coerce.number().describe("対象の取引ID"),
+      description: z.string().describe("差し替え後の摘要"),
+      commit: z.boolean().optional().describe("実際に送信する（既定: 下見のみ）"),
+    },
+    async (params) => wrap(() => setDealDescription(client, params))
   );
 
   // ── compare_wallet_movements ──
