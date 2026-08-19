@@ -253,6 +253,13 @@ export function toEntry(deal) {
     // **freee の取引IDを残す。** これが無いと、再実行したときの重複判定を
     // 「取引日・摘要・明細が同じ」という推測に頼ることになる。同じ内容の
     // 別取引（同じ日に同額の交通費が2件など）と区別できない。
+    //
+    // **入れるのは freee の ID であって、kaikei の imported_transactions
+    // の UUID ではない。** タグ名が同じなので取り違えやすい。kaikei 側の
+    // journalize_transaction は同じキーに UUID を入れるが、この経路は
+    // freee から直に記帳するので imported_transactions を通らない
+    // （実帳簿の imported_transactions は 0 行）。**UUID として解決しよう
+    // とすると必ず失敗する。** kaikei の tags.yaml にもその旨を書いた。
     const line = { account: lineCode, side, amount, tags: { imported_tx_id: String(deal.id) } };
     // **取引先は損益科目かどうかに関わらず付ける。** 誰との取引かは
     // 口座側の明細にも当てはまる。適格請求書の検証（JpTaxPolicy）は
