@@ -47,6 +47,76 @@ interface QuotationApiResponse {
   };
 }
 
+/**
+ * テキスト行が1行に収まる上限の幅（全角1・半角0.5 で数えた値）。
+ *
+ * **freee は説明行の高さを広げてくれない。** 収まらなかったぶんは2行目に
+ * はみ出し、行の枠からずれて見える。2026-09-15 に実測したところ、幅57.5 は
+ * 収まり、幅59.5 は溢れた。書体がプロポーショナル（IPA Pゴシック）で
+ * 括弧などの実幅が読めないため、安全側に倒して 48 とする。
+ */
+const NOTE_MAX_WIDTH = 48;
+
+/** 全角を1、半角を0.5 として文字列の幅を数える。 */
+function textWidth(s: string): number {
+  let w = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0)!;
+    const wide =
+      (c >= 0x1100 && c <= 0x115f) ||
+      (c >= 0x2e80 && c <= 0x303e) ||
+      (c >= 0x3041 && c <= 0x33ff) ||
+      (c >= 0x3400 && c <= 0x4dbf) ||
+      (c >= 0x4e00 && c <= 0x9fff) ||
+      (c >= 0xa000 && c <= 0xa4cf) ||
+      (c >= 0xac00 && c <= 0xd7a3) ||
+      (c >= 0xf900 && c <= 0xfaff) ||
+      (c >= 0xfe30 && c <= 0xfe6f) ||
+      (c >= 0xff00 && c <= 0xff60) ||
+      (c >= 0xffe0 && c <= 0xffe6);
+    w += wide ? 1 : 0.5;
+  }
+  return w;
+}
+
+/**
+ * 説明文を、1行に収まる幅で分ける。
+ *
+ * 句読点や区切り記号の直後で切る。区切りが無ければ幅で強制的に切る
+ * （URL や長い英単語が続く場合。切らずに送ると崩れる方が困る）。
+ */
+export function splitNote(note: string, maxWidth = NOTE_MAX_WIDTH): string[] {
+  const BREAK_AFTER = "、。，．・／/｜|）)】」』";
+  const out: string[] = [];
+  let rest = note.trim().replace(/\s+/g, " ");
+
+  while (textWidth(rest) > maxWidth) {
+    // 幅の上限に収まる範囲を切り出す
+    let cut = 0;
+    let w = 0;
+    for (const ch of rest) {
+      const cw = textWidth(ch);
+      if (w + cw > maxWidth) break;
+      w += cw;
+      cut += ch.length;
+    }
+    // その範囲の中で、最後に現れる区切りの直後まで戻す
+    let at = -1;
+    for (let i = cut - 1; i >= 0; i--) {
+      if (BREAK_AFTER.includes(rest[i]) || rest[i] === " ") {
+        at = i + 1;
+        break;
+      }
+    }
+    // 戻しすぎると短い行が並ぶので、半分未満までしか戻さない
+    if (at < cut / 2) at = cut;
+    out.push(rest.slice(0, at).trim());
+    rest = rest.slice(at).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+
 /** 見積日から既定の有効期限（1か月後の同日）を出す。月末は翌月末に丸める。 */
 function defaultExpirationDate(quoteDate: string): string {
   const [y, m, d] = quoteDate.split("-").map(Number);
@@ -117,7 +187,9 @@ export async function createQuote(
       withholding: false,
     });
     if (item.note) {
-      lines.push({ type: "text", description: item.note });
+      for (const part of splitNote(item.note)) {
+        lines.push({ type: "text", description: part });
+      }
     }
   }
 
