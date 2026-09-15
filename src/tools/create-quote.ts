@@ -48,17 +48,20 @@ interface QuotationApiResponse {
 }
 
 /**
- * テキスト行が1行に収まる上限の幅（全角1・半角0.5 で数えた値）。
+ * 説明行（テキスト行）が1行に収まる上限の幅（全角1・半角0.5 で数えた値）。
  *
  * **freee は説明行の高さを広げてくれない。** 収まらなかったぶんは2行目に
- * はみ出し、行の枠からずれて見える。2026-09-15 に実測したところ、幅57.5 は
+ * はみ出し、枠からずれて見える。2026-09-15 に実測したところ、幅57.5 は
  * 収まり、幅59.5 は溢れた。書体がプロポーショナル（IPA Pゴシック）で
  * 括弧などの実幅が読めないため、安全側に倒して 48 とする。
+ *
+ * **超えたら自動で折り返さず、作らずに止める。** 2行に分かれる説明は
+ * 説明として練られていない。1行で言い切れる長さに直す方が帳票が締まる。
  */
 const NOTE_MAX_WIDTH = 48;
 
 /** 全角を1、半角を0.5 として文字列の幅を数える。 */
-function textWidth(s: string): number {
+export function textWidth(s: string): number {
   let w = 0;
   for (const ch of s) {
     const c = ch.codePointAt(0)!;
@@ -79,41 +82,16 @@ function textWidth(s: string): number {
   return w;
 }
 
-/**
- * 説明文を、1行に収まる幅で分ける。
- *
- * 句読点や区切り記号の直後で切る。区切りが無ければ幅で強制的に切る
- * （URL や長い英単語が続く場合。切らずに送ると崩れる方が困る）。
- */
-export function splitNote(note: string, maxWidth = NOTE_MAX_WIDTH): string[] {
-  const BREAK_AFTER = "、。，．・／/｜|）)】」』";
-  const out: string[] = [];
-  let rest = note.trim().replace(/\s+/g, " ");
-
-  while (textWidth(rest) > maxWidth) {
-    // 幅の上限に収まる範囲を切り出す
-    let cut = 0;
-    let w = 0;
-    for (const ch of rest) {
-      const cw = textWidth(ch);
-      if (w + cw > maxWidth) break;
-      w += cw;
-      cut += ch.length;
-    }
-    // その範囲の中で、最後に現れる区切りの直後まで戻す
-    let at = -1;
-    for (let i = cut - 1; i >= 0; i--) {
-      if (BREAK_AFTER.includes(rest[i]) || rest[i] === " ") {
-        at = i + 1;
-        break;
-      }
-    }
-    // 戻しすぎると短い行が並ぶので、半分未満までしか戻さない
-    if (at < cut / 2) at = cut;
-    out.push(rest.slice(0, at).trim());
-    rest = rest.slice(at).trim();
+/** 上限の幅までの部分を返す。どこまでが入るかを見せるために使う。 */
+function headWithin(s: string, maxWidth: number): string {
+  let out = "";
+  let w = 0;
+  for (const ch of s) {
+    const cw = textWidth(ch);
+    if (w + cw > maxWidth) break;
+    w += cw;
+    out += ch;
   }
-  if (rest) out.push(rest);
   return out;
 }
 
@@ -187,9 +165,20 @@ export async function createQuote(
       withholding: false,
     });
     if (item.note) {
-      for (const part of splitNote(item.note)) {
-        lines.push({ type: "text", description: part });
+      const note = item.note.trim().replace(/\s+/g, " ");
+      const w = textWidth(note);
+      if (w > NOTE_MAX_WIDTH) {
+        const head = headWithin(note, NOTE_MAX_WIDTH);
+        return [
+          `エラー: 明細「${item.description}」の説明が長すぎます（幅 ${w} / 上限 ${NOTE_MAX_WIDTH}）。`,
+          "freee は説明行の高さを広げないため、収まらないと2行目が枠からはみ出します。",
+          "1行で言い切れる長さに書き直してください。",
+          "",
+          `  ${head}｜${note.slice(head.length)}`,
+          "  （「｜」までが1行に入る範囲です）",
+        ].join("\n");
       }
+      lines.push({ type: "text", description: note });
     }
   }
 
