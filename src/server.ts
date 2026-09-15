@@ -19,6 +19,7 @@ import { reconcileWallets } from "./tools/reconcile-wallets.js";
 import { compareWalletMovements } from "./tools/compare-wallet-movements.js";
 import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
+import { createQuote } from "./tools/create-quote.js";
 import { listInvoices } from "./tools/list-invoices.js";
 
 export function createMcpServer(): McpServer {
@@ -400,6 +401,49 @@ export function createMcpServer(): McpServer {
     },
     async (params) =>
       wrap(() => createInvoice(client, cache, params))
+  );
+
+  // ── create_quote ──
+  server.tool(
+    "create_quote",
+    "見積書を作成する。取引先名で指定。有効期限は省略すると見積日の1か月後。明細の note を書くと、その項目の直後に説明のテキスト行が入る（freee の明細に「内容」列は無いため）。値引きは単価をマイナスにした明細行で表す。",
+    {
+      partner_name: z.string().describe("取引先名（例: 株式会社サンプル）"),
+      quote_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-mm-dd形式で指定")
+        .describe("見積日 yyyy-mm-dd"),
+      expiration_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-mm-dd形式で指定")
+        .optional()
+        .describe("有効期限 yyyy-mm-dd（省略時は見積日の1か月後）"),
+      subject: z.string().optional().describe("件名"),
+      items: z
+        .array(
+          z.object({
+            description: z.string().describe("品名・摘要"),
+            qty: z.coerce.number().describe("数量"),
+            unit: z.string().optional().describe("単位（デフォルト: 式）"),
+            unit_price: z.coerce
+              .number()
+              .describe("単価（税抜）。値引きはマイナスを指定する"),
+            tax_rate: z.coerce
+              .number()
+              .optional()
+              .describe("税率（デフォルト: 10。軽減税率は8）"),
+            note: z
+              .string()
+              .optional()
+              .describe("項目の説明。直後にテキスト行として入る"),
+          })
+        )
+        .describe("明細行の配列"),
+      quotation_note: z.string().optional().describe("備考欄（前提条件など）"),
+      delivery_deadline: z.string().optional().describe("納期"),
+      delivery_location: z.string().optional().describe("受渡場所"),
+    },
+    async (params) => wrap(() => createQuote(client, cache, params))
   );
 
   // ── list_invoices ──
