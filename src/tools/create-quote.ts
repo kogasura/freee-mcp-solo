@@ -60,18 +60,6 @@ interface QuotationApiResponse {
  */
 const NOTE_MAX_WIDTH = 48;
 
-/**
- * 件名が1行に収まる上限の幅。
- *
- * 件名欄は明細より狭い（右側が金額ブロックに取られている）。2026-09-15 に
- * 実測したところ **幅17.5 で折り返した**。枠からはみ出しはしないが、2行に
- * なると帳票の見栄えが落ちる。安全側に倒して 16 とする。
- *
- * **件名に詰め込まないこと。** 「構造物点検_報告書作成費_7〜8月対応分」は
- * 収まらない。件名は「何の件か」だけにして、期間や内訳は明細へ回す。
- */
-const SUBJECT_MAX_WIDTH = 16;
-
 /** 全角を1、半角を0.5 として文字列の幅を数える。 */
 export function textWidth(s: string): number {
   let w = 0;
@@ -159,23 +147,6 @@ export async function createQuote(
   const expirationDate =
     params.expiration_date ?? defaultExpirationDate(params.quote_date);
 
-  // 件名が1行に収まるか。収まらないと2行に折り返して見栄えが落ちる
-  const subject = (params.subject ?? "").trim().replace(/\s+/g, " ");
-  if (subject) {
-    const sw = textWidth(subject);
-    if (sw > SUBJECT_MAX_WIDTH) {
-      const head = headWithin(subject, SUBJECT_MAX_WIDTH);
-      return [
-        `エラー: 件名が長すぎます（幅 ${sw} / 上限 ${SUBJECT_MAX_WIDTH}）。`,
-        "件名欄は明細より狭く、超えると2行に折り返して見栄えが落ちます。",
-        "件名は「何の件か」だけにして、期間や内訳は明細へ回してください。",
-        "",
-        `  ${head}｜${subject.slice(head.length)}`,
-        "  （「｜」までが1行に入る範囲です）",
-      ].join("\n");
-    }
-  }
-
   // 明細行の構築。note があれば、その項目の直後にテキスト行を足す
   const lines: Record<string, unknown>[] = [];
   for (const item of params.items) {
@@ -225,7 +196,7 @@ export async function createQuote(
     ...(config.invoice.company_contact_name
       ? { company_contact_name: config.invoice.company_contact_name }
       : {}),
-    subject,
+    subject: params.subject ?? "",
     tax_entry_method: config.invoice.tax_entry_method === "exclusive" ? "out" : "in",
     tax_fraction: "omit",
     withholding_tax_entry_method: "out",
