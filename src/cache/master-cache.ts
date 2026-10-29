@@ -111,6 +111,49 @@ export class MasterCache {
     return res.partner;
   }
 
+  // ── メモタグ ──
+
+  private memoTagId: Promise<number> | null = null;
+
+  /**
+   * solo が作ったデータに付けるメモタグの ID。無ければ作る。
+   *
+   * 本家 freee-mcp は作成したデータに「freee-mcp」タグを付ける。solo も
+   * 「freee-mcp-solo」を付け、後から AI が登録したものだけに絞り込めるようにする
+   * （一括登録の見直し・取り消し、二重計上の調査で使う）。
+   */
+  async getMemoTagId(name = "freee-mcp-solo"): Promise<number> {
+    // 並行して呼ばれても取得・作成は1回にする（同名の2回目の作成は 400 になる）
+    if (!this.memoTagId) {
+      this.memoTagId = this.fetchOrCreateTag(name).catch((e) => {
+        this.memoTagId = null;
+        throw e;
+      });
+    }
+    return this.memoTagId;
+  }
+
+  private async fetchOrCreateTag(name: string): Promise<number> {
+    const find = async () => {
+      const res = await this.client.get<{ tags: { id: number; name: string }[] }>(
+        "/api/1/tags",
+        { limit: 3000 }
+      );
+      return (res.tags ?? []).find((t) => t.name === name)?.id;
+    };
+    const found = await find();
+    if (found) return found;
+    try {
+      const created = await this.client.post<{ tag: { id: number } }>("/api/1/tags", { name });
+      return created.tag.id;
+    } catch (e) {
+      // 別のプロセスが先に作っていれば、それを使う
+      const again = await find();
+      if (again) return again;
+      throw e;
+    }
+  }
+
   // ── 口座 ──
 
   async getWalletables(): Promise<Walletable[]> {

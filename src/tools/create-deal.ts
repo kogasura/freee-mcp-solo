@@ -16,7 +16,12 @@ interface CreateDealParams {
   wallet_name?: string;
   partner_name?: string;
   description?: string;
+  /** 取引先が未登録のとき新しく作る。既定は作らずに止める */
+  create_partner?: boolean;
 }
+
+/** wallet_name にこれを渡すと、個人のお金（事業主借・事業主貸）で決済した取引にする */
+export const PRIVATE_FUNDS = "プライベート資金";
 
 /** 明細の状態。1 が未処理（どの取引にも紐付いていない） */
 const WALLET_TXN_UNPROCESSED = 1;
@@ -76,6 +81,7 @@ export function buildWalletTxnDealBody(params: {
   tax_code: number;
   partner_id?: number;
   description?: string;
+  tag_ids?: number[];
 }): Record<string, unknown> {
   const line: Record<string, unknown> = {
     account_item_id: params.account_item_id,
@@ -83,6 +89,7 @@ export function buildWalletTxnDealBody(params: {
     amount: params.amount,
   };
   if (params.description) line.description = params.description;
+  if (params.tag_ids?.length) line.tag_ids = params.tag_ids;
 
   const body: Record<string, unknown> = {
     issue_date: params.issue_date,
@@ -112,7 +119,15 @@ export async function createDeal(
     const partnerResult = await cache.resolvePartner(params.partner_name);
 
     if (partnerResult === null) {
-      // 未登録 → 自動作成
+      // **未登録なら、頼まれたときだけ作る。** 打ち間違いのたびに取引先が増えると、
+      // 適格請求書の確認や取引先別の集計が崩れる
+      if (!params.create_partner) {
+        return `取引先「${params.partner_name}」は未登録です。登録していません。
+` +
+          `  打ち間違いなら正しい名前で呼び直してください（list_partners で一覧が見られます）。
+` +
+          `  新しい取引先なら create_partner: true を付けて呼び直してください。`;
+      }
       const newPartner = await cache.createPartner(params.partner_name);
       partnerId = newPartner.id;
       partnerName = newPartner.name;
@@ -128,8 +143,17 @@ export async function createDeal(
   let walletType: "bank_account" | "credit_card" | "wallet" | undefined;
   let walletId: number | undefined;
   let walletName: string | undefined;
-
-  if (params.wallet_name) {
+  let privateAccountId: number | undefined;
+  if (params.wallet_name === PRIVATE_FUNDS) {
+    // 支出は事業主借、収入は事業主貸で決済する（freee のプライベート資金）
+    const name = params.type === "expense" ? "事業主借" : "事業主貸";
+    const r = await cache.resolveAccountItem(name);
+    if ("candidates" in r) {
+      return `エラー: 勘定科目「${name}」が見つかりません。`;
+    }
+    privateAccountId = r.item.id;
+    walletName = `${PRIVATE_FUNDS}（${name}）`;
+  } else if (params.wallet_name) {
     const wallet = await cache.resolveWalletable(params.wallet_name);
     if (!wallet) {
       const all = await cache.getWalletables();
@@ -141,6 +165,7 @@ export async function createDeal(
     walletName = wallet.name;
   }
 
+  const memoTagId = await cache.getMemoTagId();
   const typeName = params.type === "income" ? "収入" : "支出";
   const summary = `  ${params.issue_date} ${typeName} ${formatYen(params.amount)} ${accountItem.name}${partnerName ? ` / ${partnerName}` : ""}${params.description ? ` / ${params.description}` : ""}`;
 
@@ -181,6 +206,7 @@ export async function createDeal(
         tax_code: accountItem.default_tax_code,
         partner_id: partnerId,
         description: params.description,
+        tag_ids: [memoTagId],
       });
       const created = await client.post<WalletTxnCreateDealResponse>(
         `/api/1/wallet_txns/${txn.id}/create_deal`,
@@ -237,6 +263,7 @@ export async function createDeal(
         tax_code: accountItem.default_tax_code,
         amount: params.amount,
         description: params.description,
+        tag_ids: [memoTagId],
       },
     ],
   };
@@ -254,6 +281,15 @@ export async function createDeal(
         amount: params.amount,
       },
     ];
+  } else if (privateAccountId) {
+    body.payments = [
+      {
+        date: params.issue_date,
+        from_walletable_type: "private_account_item",
+        from_walletable_id: privateAccountId,
+        amount: params.amount,
+      },
+    ];
   }
 
   const res = await client.post<DealResponse>("/api/1/deals", body);
@@ -261,7 +297,11 @@ export async function createDeal(
   const lines: string[] = [];
   lines.push(`登録完了 (ID: ${res.deal.id})`);
   lines.push(summary);
-  if (walletName) {
+  if (!walletName) {
+    lines.push(`  決済: 未決済（売掛金・未払金として残ります）`);
+  } else if (privateAccountId) {
+    lines.push(`  決済: ${walletName}`);
+  } else {
     lines.push(`  決済: ${walletName}`);
     lines.push(
       `  ※ ${params.issue_date} に ${formatYen(params.amount)} の未処理の明細が ${walletName} に無かったため、明細と紐付いていません。` +

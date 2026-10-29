@@ -108,3 +108,14 @@ test("未処理の明細や、金額・向きの違う処理済み明細は双�
   assert.equal(findProcessedTwin([txn({ status: 2, amount: 999 })], target), undefined);
   assert.equal(findProcessedTwin([txn({ status: 2, entry_side: "income" })], target), undefined);
 });
+
+test("メモタグがあれば明細の行に付ける", () => {
+  const body = buildWalletTxnDealBody({
+    issue_date: "2026-10-26",
+    amount: 1604,
+    account_item_id: 623306499,
+    tax_code: 136,
+    tag_ids: [99],
+  });
+  assert.deepEqual(body.deal_lines[0].tag_ids, [99]);
+});
