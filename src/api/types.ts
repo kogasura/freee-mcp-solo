@@ -10,6 +10,8 @@ export interface WalletTxn {
   description: string;
   walletable_type: "bank_account" | "credit_card" | "wallet";
   walletable_id: number;
+  /** 1: 未処理（取引と紐付いていない）、2: 消込済み、3: 無視 など */
+  status?: number;
 }
 
 export interface WalletTxnResponse {
@@ -57,6 +59,11 @@ export interface Deal {
   ref_number?: string;
   details: DealDetail[];
   payments?: DealPayment[];
+}
+
+/** POST /api/1/wallet_txns/{id}/create_deal の応答 */
+export interface WalletTxnCreateDealResponse {
+  deal_ids: number[];
 }
 
 export interface DealResponse {
