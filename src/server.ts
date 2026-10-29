@@ -21,6 +21,7 @@ import { listDeals } from "./tools/list-deals.js";
 import { createInvoice } from "./tools/create-invoice.js";
 import { createQuote } from "./tools/create-quote.js";
 import { listInvoices } from "./tools/list-invoices.js";
+import { recordTransfer } from "./tools/record-transfer.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -60,7 +61,7 @@ export function createMcpServer(): McpServer {
   // ── pending_transactions ──
   server.tool(
     "pending_transactions",
-    "未処理（未仕訳）の口座明細一覧を取得する。口座名や期間で絞込可能。",
+    "未処理の口座明細（どの取引にも紐付いていない明細）の一覧を取得する。記帳済みでも明細から登録していなければ残る。記帳漏れかどうかは unrecorded_transactions で判定する。",
     {
       wallet_name: z
         .string()
@@ -86,7 +87,7 @@ export function createMcpServer(): McpServer {
   // ── create_deal ──
   server.tool(
     "create_deal",
-    "取引（仕訳）を登録する。勘定科目は名前で指定。税区分は勘定科目のデフォルトを自動適用。口座を指定すると、同じ日・同じ金額・同じ向きの未処理の口座明細を探し、あればその明細から登録して紐付ける（明細が「未処理」のまま残らない）。明細が無いときは通常の取引として登録し、紐付いていない旨を返す。",
+    "取引（仕訳）を登録する。勘定科目・口座・取引先は名前で指定。口座を指定すると、同じ日・同じ金額・同じ向きの未処理の口座明細から登録して紐付ける。登録した取引にはメモタグ freee-mcp-solo を付ける。カード引落しなど口座間の移動は record_transfer を使う。",
     {
       type: z
         .enum(["income", "expense"])
@@ -105,15 +106,19 @@ export function createMcpServer(): McpServer {
       wallet_name: z
         .string()
         .optional()
-        .describe("決済口座名（例: PayPay銀行）。未指定＝プライベート資金"),
+        .describe("決済口座名（例: PayPay銀行）。個人のお金で払ったものは「プライベート資金」。未指定＝未決済（売掛金・未払金として残る）"),
       partner_name: z
         .string()
         .optional()
-        .describe("取引先名。未登録の場合は自動作成"),
+        .describe("取引先名。未登録なら登録せずに止まる"),
       description: z
         .string()
         .optional()
         .describe("摘要（備考）"),
+      create_partner: z
+        .boolean()
+        .optional()
+        .describe("取引先が未登録のとき新しく作る（既定: 作らない）"),
     },
     async (params) =>
       wrap(() => createDeal(client, cache, params))
@@ -286,6 +291,23 @@ export function createMcpServer(): McpServer {
         .describe("残高・増減がいずれも 0 の科目も出す（既定: 出さない）"),
     },
     async (params) => wrap(() => trialBalance(client, params))
+  );
+
+  // ── record_transfer ──
+  server.tool(
+    "record_transfer",
+    "口座間の移動（カード引落し・Suicaチャージ・口座間の振込）を口座振替として登録する。口座は名前で指定。未処理の明細があれば明細から登録して紐付ける。カード引落しを create_deal（未払金・事業主貸）で入れると負債が二重になるので、必ずこれを使う。",
+    {
+      date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-mm-dd形式で指定")
+        .describe("移動した日 yyyy-mm-dd"),
+      amount: z.coerce.number().positive("金額は正の数で指定").describe("金額"),
+      from: z.string().describe("移動元の口座名（例: PayPay銀行、三井住友）"),
+      to: z.string().describe("移動先の口座名（例: 三井住友、モバイルSuica）"),
+      description: z.string().optional().describe("摘要（例: 三井住友カード引落し）"),
+    },
+    async (params) => wrap(() => recordTransfer(client, cache, params))
   );
 
   // ── list_transfers ──
