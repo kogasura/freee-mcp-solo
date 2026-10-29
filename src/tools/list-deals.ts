@@ -28,9 +28,8 @@ interface DealRow {
 /**
  * 取引1件を1行にする。
  *
- * **`tools/sync-to-kaikei.mjs` がこの行を正規表現で読む。** 形式を変えると
- * 同期が黙って0件になるか、値を取り違える。`test/sync-to-kaikei.test.mjs`
- * が、ここが作った行をそのまま同期側に食わせて往復を固定している。
+ * 税区分（`<tax:>`）と取引先（`<partner:>`）は区切り付きで末尾に出す。
+ * 読み手が摘要と取り違えないようにするため。
  */
 export function formatDealLine(row: DealRow, seq: number): string {
   const side = row.type === "income" ? "収入" : "支出";
@@ -50,8 +49,8 @@ export function formatDealLine(row: DealRow, seq: number): string {
   line += ` <tax:${row.taxCode}>`;
   // **取引先は区切り付きで出す。** 以前は摘要の後ろに ` / 取引先` として
   // 並べていたが、摘要も取引先も省略されうるので、`科目 / A` の A が摘要か
-  // 取引先かを位置から決められなかった。実際に sync-to-kaikei.mjs は
-  // すべてを摘要として読み、**47 件の仕訳の摘要に取引先名が混ざった**
+  // 取引先かを位置から決められなかった。実際に、この行を読んで別の帳簿へ
+  // 写したとき、**47 件の仕訳の摘要に取引先名が混ざった**
   // （「食料品 / イオンリテール」）。
   if (row.partnerName) line += ` <partner:${row.partnerName}>`;
   return line;
