@@ -229,7 +229,7 @@ export function createMcpServer(): McpServer {
   // ── list_partners ──
   server.tool(
     "list_partners",
-    "取引先の一覧を取得し、kaikei counterparty import に渡せる CSV を添えて返す。適格請求書発行事業者かどうかは、登録番号が入っているときだけ true とし、それ以外は空欄（未確認）にする。",
+    "取引先の一覧を取得し、適格請求書発行事業者の登録番号が入っているかを示す。適格と表示するのは登録番号があり freee の適格フラグが真のときだけで、それ以外は未確認とする（非適格とは言わない）。",
     {
       include_unavailable: z
         .boolean()

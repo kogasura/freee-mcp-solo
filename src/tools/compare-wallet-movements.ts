@@ -101,7 +101,7 @@ export function compareMovements(
   }
 
   // 金額の大きい順。**先頭しか読まれないことがあるので、並び順が
-  // 「何を見せるか」になる**（kaikei の重複検出と同じ理由）。
+  // 「何を見せるか」になる**。
   const byAbsAmount = (
     a: { amount: number; extra: number },
     b: { amount: number; extra: number }
